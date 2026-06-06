@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart File Organizer Agent</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:       #1e1e2e;
+      --surface:  #2a2a3e;
+      --surface2: #313145;
+      --border:   #45475a;
+      --text:     #cdd6f4;
+      --muted:    #6c7086;
+      --blue:     #89b4fa;
+      --green:    #a6e3a1;
+      --yellow:   #f9e2af;
+      --cyan:     #89dceb;
+      --purple:   #cba6f7;
+      --red:      #f38ba8;
+      --orange:   #fab387;
+      --radius:   10px;
+    }
+    html, body { height: 100%; font-family: "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+    /* ── Layout ───────────────────────────────────────────────── */
+    .app { display: flex; flex-direction: column; height: 100vh; max-width: 980px; margin: 0 auto; padding: 0 16px 12px; }
+
+    /* ── Header ───────────────────────────────────────────────── */
+    header { padding: 16px 0 10px; text-align: center; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+    header h1 { font-size: 21px; font-weight: 700; color: var(--text); }
+    header h1 span { color: var(--blue); }
+    .workflow-pills { display: flex; gap: 6px; justify-content: center; margin-top: 7px; }
+    .pill { padding: 3px 14px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase; background: var(--surface); color: var(--muted); border: 1px solid var(--border); transition: all .3s; }
+    .pill.active-observe { background: #1a2a3a; color: var(--cyan);   border-color: var(--cyan);   box-shadow: 0 0 8px #89dceb44; }
+    .pill.active-decide  { background: #2a2a1a; color: var(--yellow); border-color: var(--yellow); box-shadow: 0 0 8px #f9e2af44; }
+    .pill.active-act     { background: #1a2a1a; color: var(--green);  border-color: var(--green);  box-shadow: 0 0 8px #a6e3a144; }
+    .pill.done           { opacity: .5; }
+    .pill-arrow { color: var(--muted); font-size: 13px; display: flex; align-items: center; }
+
+    /* ── Mode tabs ────────────────────────────────────────────── */
+    .tabs { display: flex; gap: 4px; margin-bottom: 10px; }
+    .tab { padding: 7px 18px; border-radius: var(--radius); font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--muted); transition: all .2s; }
+    .tab.active { background: var(--surface2); color: var(--text); border-color: var(--blue); }
+
+    /* ── Folder-path controls ─────────────────────────────────── */
+    #tabFolder { display: flex; gap: 8px; margin-bottom: 10px; }
+    #tabFolder input { flex: 1; padding: 9px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px; font-family: "Consolas", monospace; outline: none; transition: border-color .2s; }
+    #tabFolder input:focus { border-color: var(--blue); }
+    #tabFolder input::placeholder { color: var(--muted); }
+
+    /* ── Upload zone ──────────────────────────────────────────── */
+    #tabUpload { display: none; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+    .drop-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 28px 20px; text-align: center; cursor: pointer; transition: border-color .2s, background .2s; position: relative; }
+    .drop-zone:hover, .drop-zone.dragover { border-color: var(--blue); background: #1a2a4a44; }
+    .drop-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+    .drop-icon { font-size: 32px; margin-bottom: 8px; }
+    .drop-title { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+    .drop-hint  { font-size: 11px; color: var(--muted); }
+    .upload-file-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 80px; overflow-y: auto; }
+    .upload-chip { display: flex; align-items: center; gap: 5px; background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 2px 10px; font-size: 11px; font-family: "Consolas", monospace; color: var(--text); max-width: 200px; overflow: hidden; }
+    .upload-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .upload-chip .rm { cursor: pointer; color: var(--muted); font-size: 13px; flex-shrink: 0; }
+    .upload-chip .rm:hover { color: var(--red); }
+    .upload-progress-wrap { height: 4px; background: var(--surface); border-radius: 4px; overflow: hidden; display: none; }
+    .upload-progress-bar  { height: 100%; width: 0%; background: var(--blue); border-radius: 4px; transition: width .2s; }
+    .upload-actions { display: flex; gap: 8px; }
+
+    /* ── Buttons ──────────────────────────────────────────────── */
+    .btn { padding: 8px 16px; border: none; border-radius: var(--radius); font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity .2s, transform .1s; white-space: nowrap; }
+    .btn:active { transform: scale(.97); }
+    .btn:disabled { opacity: .35; cursor: not-allowed; transform: none; }
+    .btn-primary  { background: var(--blue);    color: #1e1e2e; }
+    .btn-success  { background: var(--green);   color: #1e1e2e; }
+    .btn-download { background: var(--orange);  color: #1e1e2e; }
+    .btn-muted    { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-demo     { background: var(--purple);  color: #1e1e2e; }
+
+    /* ── Progress bar ─────────────────────────────────────────── */
+    .progress-wrap { height: 4px; background: var(--surface); border-radius: 4px; margin-bottom: 10px; overflow: hidden; }
+    .progress-bar  { height: 100%; width: 0%; background: var(--blue); border-radius: 4px; transition: width .3s; }
+    .progress-bar.done { background: var(--green); }
+
+    /* ── Stats row ────────────────────────────────────────────── */
+    .stats-row { display: flex; gap: 8px; margin-bottom: 10px; }
+    .stat-card { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 7px 12px; display: flex; align-items: center; gap: 8px; }
+    .stat-icon { font-size: 17px; }
+    .stat-count { font-size: 17px; font-weight: 700; line-height: 1; }
+    .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-top: 2px; }
+    .stat-docs  .stat-count { color: var(--blue); }
+    .stat-imgs  .stat-count { color: var(--green); }
+    .stat-vids  .stat-count { color: var(--orange); }
+    .stat-arch  .stat-count { color: var(--purple); }
+
+    /* ── Two-column main ──────────────────────────────────────── */
+    .main { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; flex: 1; min-height: 0; }
+
+    /* ── Panel ────────────────────────────────────────────────── */
+    .panel { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .panel-header { padding: 9px 13px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .panel-header .badge { margin-left: auto; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 10px; background: var(--surface2); color: var(--muted); }
+    .panel-body { flex: 1; overflow-y: auto; padding: 6px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+
+    /* ── File / plan rows ─────────────────────────────────────── */
+    .file-row { display: flex; align-items: center; gap: 7px; padding: 5px 7px; border-radius: 6px; margin-bottom: 2px; transition: background .15s; }
+    .file-row:hover { background: var(--surface2); }
+    .file-icon { font-size: 15px; flex-shrink: 0; }
+    .file-name { font-size: 12px; font-family: "Consolas", monospace; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-folder { font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 8px; flex-shrink: 0; }
+    .folder-Documents { background: #1a2a4a; color: var(--blue); }
+    .folder-Images    { background: #1a3a1a; color: var(--green); }
+    .folder-Videos    { background: #3a2a1a; color: var(--orange); }
+    .folder-Archives  { background: #2a1a3a; color: var(--purple); }
+    .folder-Other     { background: #2a2a2a; color: var(--muted); }
+
+    .plan-row { display: flex; align-items: center; gap: 5px; padding: 5px 7px; border-radius: 6px; margin-bottom: 2px; }
+    .plan-row:hover { background: var(--surface2); }
+    .plan-src { font-size: 11px; font-family: "Consolas", monospace; color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .plan-arrow { color: var(--muted); font-size: 11px; flex-shrink: 0; }
+    .plan-dst { font-size: 11px; font-family: "Consolas", monospace; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ── Log panel (full-width) ───────────────────────────────── */
+    .log-panel { grid-column: 1 / -1; max-height: 180px; }
+    .log-body { font-family: "Consolas", monospace; font-size: 11px; line-height: 1.6; }
+    .log-line { padding: 1px 7px; }
+    .log-line.OBSERVE { color: var(--cyan); }
+    .log-line.DECIDE  { color: var(--yellow); }
+    .log-line.ACT     { color: var(--green); }
+    .log-line.ERROR   { color: var(--red); }
+
+    /* ── Empty state ──────────────────────────────────────────── */
+    .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 5px; color: var(--muted); font-size: 12px; padding: 16px; text-align: center; }
+    .empty-icon { font-size: 26px; opacity: .4; }
+
+    /* ── Download banner ──────────────────────────────────────── */
+    #downloadBanner { display: none; background: #1a2a1a; border: 1px solid var(--green); border-radius: var(--radius); padding: 10px 16px; margin-bottom: 8px; display: none; align-items: center; gap: 12px; }
+    #downloadBanner.visible { display: flex; }
+    #downloadBanner .dl-text { flex: 1; font-size: 13px; color: var(--green); }
+    #downloadBanner .dl-sub  { font-size: 11px; color: var(--muted); }
+
+    /* ── Status bar ───────────────────────────────────────────── */
+    .status-bar { margin-top: 6px; font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <header>
+    <h1>🗂 Smart File <span>Organizer</span> Agent</h1>
+    <div class="workflow-pills">
+      <div class="pill" id="pill-observe">Observe</div>
+      <div class="pill-arrow">→</div>
+      <div class="pill" id="pill-decide">Decide</div>
+      <div class="pill-arrow">→</div>
+      <div class="pill" id="pill-act">Act</div>
+    </div>
+  </header>
+
+  <!-- Mode tabs -->
+  <div class="tabs">
+    <div class="tab active" id="tab-folder" onclick="switchTab('folder')">📁 Folder Path</div>
+    <div class="tab" id="tab-upload" onclick="switchTab('upload')">⬆️ Upload Files</div>
+  </div>
+
+  <!-- Folder-path controls -->
+  <div id="tabFolder">
+    <input id="pathInput" type="text" placeholder="/home/runner/workspace/demo_files" />
+    <button class="btn btn-primary" id="btnScan" onclick="doScan()">🔍 Scan</button>
+    <button class="btn btn-success" id="btnOrganize" onclick="doOrganize()" disabled>▶ Organize</button>
+    <button class="btn btn-demo" onclick="doDemo()">🎲 Demo</button>
+  </div>
+
+  <!-- Upload controls -->
+  <div id="tabUpload">
+    <div class="drop-zone" id="dropZone">
+      <input type="file" id="fileInput" multiple onchange="onFilePicked(this.files)" />
+      <div class="drop-icon">📂</div>
+      <div class="drop-title">Drop files here or click to browse</div>
+      <div class="drop-hint">PDF · DOCX · JPG · PNG · MP4 · ZIP and more — up to 500 MB total</div>
+    </div>
+    <div class="upload-file-list" id="uploadFileList"></div>
+    <div class="upload-progress-wrap" id="uploadProgressWrap">
+      <div class="upload-progress-bar" id="uploadProgressBar"></div>
+    </div>
+    <div class="upload-actions">
+      <button class="btn btn-primary" id="btnUpload" onclick="doUpload()" disabled>⬆️ Upload &amp; Scan</button>
+      <button class="btn btn-success" id="btnUploadOrganize" onclick="doUploadOrganize()" disabled>▶ Organize</button>
+      <button class="btn btn-muted" onclick="clearUpload()">✕ Clear</button>
+    </div>
+  </div>
+
+  <!-- Agent progress bar -->
+  <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
+
+  <!-- Download banner (upload mode only) -->
+  <div id="downloadBanner">
+    <div>
+      <div class="dl-text">✅ Files organised and ready!</div>
+      <div class="dl-sub">Your files have been sorted into Documents, Images, Videos &amp; Archives.</div>
+    </div>
+    <button class="btn btn-download" id="btnDownload" onclick="doDownload()">⬇️ Download ZIP</button>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-row">
+    <div class="stat-card stat-docs"><span class="stat-icon">📄</span><div><span class="stat-count" id="statDocs">0</span><div class="stat-label">Documents</div></div></div>
+    <div class="stat-card stat-imgs"><span class="stat-icon">🖼️</span><div><span class="stat-count" id="statImgs">0</span><div class="stat-label">Images</div></div></div>
+    <div class="stat-card stat-vids"><span class="stat-icon">🎬</span><div><span class="stat-count" id="statVids">0</span><div class="stat-label">Videos</div></div></div>
+    <div class="stat-card stat-arch"><span class="stat-icon">📦</span><div><span class="stat-count" id="statArch">0</span><div class="stat-label">Archives</div></div></div>
+  </div>
+
+  <!-- Main panels -->
+  <div class="main">
+    <div class="panel">
+      <div class="panel-header" style="color:var(--cyan)">
+        🔎 Files Detected <span class="badge" id="fileCount">0 files</span>
+      </div>
+      <div class="panel-body" id="fileList">
+        <div class="empty"><div class="empty-icon">📂</div>Scan a folder or upload files</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header" style="color:var(--yellow)">
+        📋 Move Plan <span class="badge" id="planCount">0 moves</span>
+      </div>
+      <div class="panel-body" id="planList">
+        <div class="empty"><div class="empty-icon">🗺️</div>Plan appears after scanning</div>
+      </div>
+    </div>
+
+    <div class="panel log-panel">
+      <div class="panel-header" style="color:var(--green)">
+        📟 Activity Log
+        <button class="btn btn-muted" style="padding:2px 10px;font-size:11px;margin-left:auto" onclick="clearLog()">Clear</button>
+      </div>
+      <div class="panel-body log-body" id="logBody">
+        <div class="empty"><div class="empty-icon">📋</div>Live agent output appears here</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status bar -->
+  <div class="status-bar">
+    <span id="statusText">Ready — select a tab to get started.</span>
+    <span id="statusRight" style="color:var(--muted)"></span>
+  </div>
+
+</div>
+<script>
+  /* ── State ─────────────────────────────────────────────────────── */
+  let mode          = "folder";   // "folder" | "upload"
+  let scannedPath   = "";         // folder mode
+  let sessionId     = "";         // upload mode
+  let pickedFiles   = [];         // DataTransfer / File list staging
+
+  /* ── Tab switching ─────────────────────────────────────────────── */
+  function switchTab(t) {
+    mode = t;
+    document.getElementById("tab-folder").classList.toggle("active", t === "folder");
+    document.getElementById("tab-upload").classList.toggle("active", t === "upload");
+    document.getElementById("tabFolder").style.display = t === "folder" ? "flex"   : "none";
+    document.getElementById("tabUpload").style.display = t === "upload" ? "flex"   : "none";
+    document.getElementById("downloadBanner").classList.remove("visible");
+    resetPills(); resetStats(); clearFileList(); clearPlanList(); clearLog();
+    setStatus("Ready.");
+    setProgress(0);
+  }
+
+  /* ── Workflow pills ─────────────────────────────────────────────── */
+  function setPill(p) {
+    ["observe","decide","act"].forEach(x => {
+      const el = document.getElementById("pill-" + x);
+      el.className = "pill" + (x === p ? " active-" + x : "");
+    });
+  }
+  function donePill(p) { document.getElementById("pill-" + p).className = "pill done"; }
+  function resetPills() { ["observe","decide","act"].forEach(p => document.getElementById("pill-" + p).className = "pill"); }
+
+  /* ── Progress helpers ───────────────────────────────────────────── */
+  function setProgress(pct, done = false) {
+    const bar = document.getElementById("progressBar");
+    bar.style.width = pct + "%";
+    bar.className   = "progress-bar" + (done ? " done" : "");
+  }
+  function setStatus(msg, isError = false) {
+    const el = document.getElementById("statusText");
+    el.textContent = msg;
+    el.style.color = isError ? "var(--red)" : "var(--muted)";
+  }
+
+  /* ── SSE helper (POST) ──────────────────────────────────────────── */
+  function fetchSSE(url, body, onEvent) {
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(res => {
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      function read() {
+        reader.read().then(({ done, value }) => {
+          if (done) return;
+          buf += dec.decode(value, { stream: true });
+          const blocks = buf.split("\n\n");
+          buf = blocks.pop();
+          for (const block of blocks) {
+            const d = block.replace(/^data: /, "").trim();
+            if (d) try { onEvent(JSON.parse(d)); } catch (_) {}
+          }
+          read();
+        });
+      }
+      read();
+    });
+  }
+
+  /* ── Shared SSE event handler ───────────────────────────────────── */
+  function handleAgentEvent(d) {
+    if (d.phase === "OBSERVE" && d.total !== undefined) setPill("observe");
+    if (d.phase === "DECIDE")  setPill("decide");
+    if (d.phase === "ACT") {
+      setPill("act");
+      if (d.current && d.total) setProgress(Math.round(d.current / d.total * 100));
+      if (d.done) {
+        if (d.stats) updateStats(d.stats);
+        setProgress(100, true);
+        donePill("act");
+        setStatus("✓ Organisation complete!");
+      }
+    }
+    if (d.phase === "DONE") {
+      enableInputs();
+      if (d.session_id && d.download_ready) {
+        sessionId = d.session_id;
+        document.getElementById("downloadBanner").classList.add("visible");
+      }
+    }
+    if (d.phase === "ERROR") {
+      appendLog("ERROR", "Error: " + d.message);
+      setStatus("Agent error.", true);
+      enableInputs();
+    }
+    if (d.message && d.phase !== "DONE") appendLog(d.phase, d.message);
+  }
+
+  function disableInputs() {
+    ["btnScan","btnOrganize","btnUpload","btnUploadOrganize"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = true;
+    });
+  }
+  function enableInputs() {
+    const el = document.getElementById("btnScan");
+    if (el) el.disabled = false;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     FOLDER MODE
+  ═══════════════════════════════════════════════════════════════ */
+
+  async function doScan() {
+    const path = document.getElementById("pathInput").value.trim();
+    if (!path) { alert("Please enter a folder path."); return; }
+    setStatus("Scanning …"); resetPills(); setPill("observe");
+    clearFileList(); clearPlanList(); clearLog(); resetStats();
+    setProgress(0);
+    document.getElementById("btnOrganize").disabled = true;
+    document.getElementById("downloadBanner").classList.remove("visible");
+
+    try {
+      const res  = await fetch("/scan", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({path}) });
+      const data = await res.json();
+      if (data.error) { setStatus("Error: " + data.error, true); return; }
+      scannedPath = data.path;
+      renderFiles(data.files);
+      renderPlan(data.plan, data.skipped);
+      donePill("observe"); setPill("decide"); setTimeout(() => donePill("decide"), 400);
+      document.getElementById("btnOrganize").disabled = data.plan.length === 0;
+      setStatus(`Found ${data.files.length} file(s). ${data.plan.length} will be moved.`);
+    } catch (e) { setStatus("Network error: " + e.message, true); }
+  }
+
+  function doOrganize() {
+    if (!scannedPath) return;
+    clearLog(); resetStats(); resetPills(); setProgress(0);
+    document.getElementById("downloadBanner").classList.remove("visible");
+    disableInputs();
+    setStatus("Agent running …");
+    fetchSSE("/organize", { path: scannedPath }, handleAgentEvent);
+  }
+
+  async function doDemo() {
+    setStatus("Creating demo files …");
+    const res  = await fetch("/demo", { method: "POST" });
+    const data = await res.json();
+    document.getElementById("pathInput").value = data.path;
+    setStatus(data.message + " — click Scan to continue.");
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     UPLOAD MODE
+  ═══════════════════════════════════════════════════════════════ */
+
+  /* ── Drag & drop wiring ──────────────────────────────────────── */
+  const dropZone = document.getElementById("dropZone");
+
+  dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("dragover"); });
+  dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+  dropZone.addEventListener("drop", e => {
+    e.preventDefault();
+    dropZone.classList.remove("dragover");
+    addFiles([...e.dataTransfer.files]);
+  });
+
+  function onFilePicked(fileList) {
+    addFiles([...fileList]);
+    document.getElementById("fileInput").value = "";
+  }
+
+  function addFiles(newFiles) {
+    const existing = new Set(pickedFiles.map(f => f.name + f.size));
+    newFiles.forEach(f => { if (!existing.has(f.name + f.size)) pickedFiles.push(f); });
+    renderChips();
+    document.getElementById("btnUpload").disabled = pickedFiles.length === 0;
+  }
+
+  function removeFile(idx) {
+    pickedFiles.splice(idx, 1);
+    renderChips();
+    document.getElementById("btnUpload").disabled = pickedFiles.length === 0;
+  }
+
+  function renderChips() {
+    const el = document.getElementById("uploadFileList");
+    el.innerHTML = pickedFiles.map((f, i) => `
+      <div class="upload-chip">
+        <span title="${f.name}">${f.name}</span>
+        <span class="rm" onclick="removeFile(${i})">✕</span>
+      </div>`).join("");
+  }
+
+  function clearUpload() {
+    pickedFiles = [];
+    sessionId   = "";
+    renderChips();
+    document.getElementById("btnUpload").disabled = true;
+    document.getElementById("btnUploadOrganize").disabled = true;
+    document.getElementById("uploadProgressWrap").style.display = "none";
+    document.getElementById("uploadProgressBar").style.width = "0%";
+    document.getElementById("downloadBanner").classList.remove("visible");
+    clearFileList(); clearPlanList(); clearLog(); resetStats(); resetPills();
+    setProgress(0); setStatus("Ready.");
+  }
+
+  /* ── Upload files (XHR with progress) ───────────────────────── */
+  function doUpload() {
+    if (!pickedFiles.length) return;
+    const formData = new FormData();
+    pickedFiles.forEach(f => formData.append("files", f));
+
+    document.getElementById("btnUpload").disabled = true;
+    document.getElementById("btnUploadOrganize").disabled = true;
+    document.getElementById("uploadProgressWrap").style.display = "block";
+    document.getElementById("downloadBanner").classList.remove("visible");
+    clearFileList(); clearPlanList(); clearLog(); resetStats(); resetPills();
+    setProgress(0); setPill("observe");
+    setStatus("Uploading …");
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/upload");
+
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) {
+        const pct = Math.round(e.loaded / e.total * 100);
+        document.getElementById("uploadProgressBar").style.width = pct + "%";
+        setStatus(`Uploading … ${pct}%`);
+      }
+    };
+
+    xhr.onload = () => {
+      document.getElementById("uploadProgressWrap").style.display = "none";
+      if (xhr.status === 200) {
+        const data = JSON.parse(xhr.responseText);
+        sessionId = data.session_id;
+        renderFiles(data.files);
+        renderPlan(data.plan, data.skipped);
+        donePill("observe"); setPill("decide"); setTimeout(() => donePill("decide"), 400);
+        document.getElementById("btnUploadOrganize").disabled = data.plan.length === 0;
+        setStatus(`Uploaded ${data.saved.length} file(s). ${data.plan.length} will be moved.`);
+      } else {
+        const err = JSON.parse(xhr.responseText);
+        setStatus("Upload error: " + (err.error || "unknown"), true);
+        document.getElementById("btnUpload").disabled = false;
+      }
+    };
+
+    xhr.onerror = () => {
+      setStatus("Upload failed.", true);
+      document.getElementById("btnUpload").disabled = false;
+    };
+
+    xhr.send(formData);
+  }
+
+  /* ── Organize uploaded files (SSE) ───────────────────────────── */
+  function doUploadOrganize() {
+    if (!sessionId) return;
+    clearLog(); resetStats(); resetPills(); setProgress(0);
+    document.getElementById("downloadBanner").classList.remove("visible");
+    document.getElementById("btnUploadOrganize").disabled = true;
+    setStatus("Agent running …");
+    fetchSSE("/upload-organize", { session_id: sessionId }, handleAgentEvent);
+  }
+
+  /* ── Download ZIP ─────────────────────────────────────────────── */
+  function doDownload() {
+    if (!sessionId) return;
+    setStatus("Preparing ZIP …");
+    const a = document.createElement("a");
+    a.href = `/download/${sessionId}`;
+    a.click();
+    setTimeout(() => setStatus("✓ Download started!"), 500);
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     Render helpers
+  ═══════════════════════════════════════════════════════════════ */
+
+  function renderFiles(files) {
+    document.getElementById("fileCount").textContent = files.length + " files";
+    const el = document.getElementById("fileList");
+    if (!files.length) {
+      el.innerHTML = '<div class="empty"><div class="empty-icon">📭</div>No files found</div>';
+      return;
+    }
+    el.innerHTML = files.map(f => `
+      <div class="file-row">
+        <span class="file-icon">${f.icon}</span>
+        <span class="file-name" title="${f.name}">${f.name}</span>
+        <span class="file-folder folder-${f.folder}">${f.folder}</span>
+      </div>`).join("");
+  }
+
+  function renderPlan(plan, skipped) {
+    document.getElementById("planCount").textContent = plan.length + " moves";
+    const el = document.getElementById("planList");
+    if (!plan.length) {
+      el.innerHTML = '<div class="empty"><div class="empty-icon">✅</div>Already organised!</div>';
+      return;
+    }
+    let html = plan.map(p => `
+      <div class="plan-row">
+        <span class="file-icon">${p.icon}</span>
+        <span class="plan-src" title="${p.src}">${p.src}</span>
+        <span class="plan-arrow">→</span>
+        <span class="plan-dst">${p.folder}/${p.dst}</span>
+      </div>`).join("");
+    if (skipped && skipped.length)
+      html += `<div class="log-line" style="margin-top:5px;color:var(--muted);font-size:11px">⏭ ${skipped.length} already in correct folder</div>`;
+    el.innerHTML = html;
+  }
+
+  function appendLog(phase, msg) {
+    const el = document.getElementById("logBody");
+    if (el.querySelector(".empty")) el.innerHTML = "";
+    const d = document.createElement("div");
+    d.className = "log-line " + phase;
+    d.textContent = msg;
+    el.appendChild(d);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function clearLog() {
+    document.getElementById("logBody").innerHTML =
+      '<div class="empty"><div class="empty-icon">📋</div>Live agent output appears here</div>';
+  }
+  function clearFileList() {
+    document.getElementById("fileList").innerHTML =
+      '<div class="empty"><div class="empty-icon">📂</div>Scan a folder or upload files</div>';
+    document.getElementById("fileCount").textContent = "0 files";
+  }
+  function clearPlanList() {
+    document.getElementById("planList").innerHTML =
+      '<div class="empty"><div class="empty-icon">🗺️</div>Plan appears after scanning</div>';
+    document.getElementById("planCount").textContent = "0 moves";
+  }
+  function resetStats() {
+    ["statDocs","statImgs","statVids","statArch"].forEach(id =>
+      document.getElementById(id).textContent = "0");
+  }
+  function updateStats(s) {
+    document.getElementById("statDocs").textContent = s["Documents"] || 0;
+    document.getElementById("statImgs").textContent = s["Images"]    || 0;
+    document.getElementById("statVids").textContent = s["Videos"]    || 0;
+    document.getElementById("statArch").textContent = s["Archives"]  || 0;
+  }
+
+  // Enter to scan in folder mode
+  document.getElementById("pathInput").addEventListener("keydown", e => {
+    if (e.key === "Enter") doScan();
+  });
+</script>
+</body>
+</html>
